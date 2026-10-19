@@ -1,10 +1,10 @@
 # Wikipedia Time Machine with MariaDB System-Versioned Tables
 
-> **Status:** built and working; measurements being filled in. Anything marked **(to verify)**
-> is not checked yet.
+> **Status:** built, measured and tested. Anything marked **(to verify)** is not checked yet.
 >
-> **Developed against MariaDB 12.2.2** (Homebrew, macOS). Needs 10.11 or later
-> (`system_versioning_insert_history`); `docker-compose.yml` uses `mariadb:lts`.
+> **Developed against MariaDB 12.2.2** (Homebrew, macOS); the Docker route was tested with
+> `mariadb:lts`, which was **12.3.3** in October 2026. Needs 10.11 or later
+> (`system_versioning_insert_history`).
 
 Pick a Wikipedia article and a moment, and read the article as it stood then. See its whole life
 on a timeline — when it was edited most, and where people kept undoing each other's edits — and
@@ -32,12 +32,34 @@ cd mariadb-system-versioning-wikipedia
 .venv/bin/python app.py     # the time machine: http://localhost:8000
 ```
 
-`setup.sh` downloads ~3.4 GB of Wikipedia history dumps; the time is mostly that download.
-*(TBD: measured time.)*
+`setup.sh` downloads ~3.4 GB of Wikipedia history dumps (~35 min at 1.6 MB/s) and loads them.
+From a fresh clone with the dumps already downloaded: 17 min 40 s, all of it loading
+(MariaDB 12.3.3 in Docker) — same 31,848 versions, tests passing.
 
 ## What we found
 
-*(TBD: filled in from `measure.py`.)*
+- **Real timestamps work.** With `system_versioning_insert_history`, 31,848 versions of 50
+  articles (2003–2026) went in with the times they were saved on Wikipedia, and
+  `FOR SYSTEM_TIME AS OF` answers "what did it say on that day". An ordinary database user can
+  do it; no special privilege.
+- **"As of" is fast, but not faster than a plain revision table.** Every query took 0.04–0.65 ms.
+  For old dates the plain table with an index was up to 15× faster — until we added an index on
+  `(page_id, row_start)`: MariaDB's own history index is ordered by when a version *ended*, so
+  "as of 2005" walked every later version. With the extra index, all designs land at
+  0.04–0.28 ms.
+- **Partitioning by year did not speed anything up at this size.** A version is filed under the
+  year it *stopped* being current, so "as of 2005" still reads 23 of the 25 partitions in use;
+  only recent dates read few (2 for today). The partitioned table is 25% bigger on disk
+  (1,196 MB against 956 MB). Its real use is managing growth: dropping or archiving old years.
+- **Compression: use `COMPRESSED` columns on a Mac.** InnoDB page compression compressed the
+  pages but saved no disk on macOS (no "punch hole" support); column compression did: 2,049 MB of
+  wikitext in 1,202 MB.
+- **Most reverts are cleanup, not edit wars.** *Talvisota* has 328 reverts; 240 undo an edit by
+  an anonymous editor. Telling the two apart needs the editor's name — and Wikipedia's 2025 switch
+  from IP addresses to temporary accounts (`~2026-33532-4`) changes what "anonymous" looks like.
+- **Limits met on the way:** no `CREATE TEMPORARY TABLE` with system versioning; a prepared
+  statement's `TIMESTAMP ?` refuses a bare date; a batch of long versions exceeds the default
+  16 MB packet, so the loader sends batches by size, not by row count.
 
 ## Choices, and why
 
@@ -139,7 +161,7 @@ CREATE TABLE article (
 | Docker | Docker Desktop, Colima or OrbStack — only for MariaDB in Docker | Runs MariaDB | `docker ps` |
 | 7-Zip | `7zz` (Mac: `brew install 7-zip`) | Unpacks the dumps as a stream | `7zz` |
 | Python | 3.11 or later | Load script, page, measurements | `python3 --version` |
-| Free disk | ~5 GB *(TBD)* | 3.4 GB of dumps + the table | `df -h ~` |
+| Free disk | ~5 GB | 3.4 GB of dumps + 1.2 GB table | `df -h ~` |
 | Internet | ~3.4 GB, once | The history dumps | — |
 | Accounts / API keys | **None** | | — |
 
@@ -187,7 +209,9 @@ python load.py
   ```
 
 - Safe to stop and run again: articles already loaded are skipped.
-- One dump file takes ~90 s, most of it 7-Zip and reading XML.
+- One dump file takes 1–3 minutes, most of it 7-Zip and reading XML; all 12, ~20 minutes.
+- Versions are sent in batches of at most 8 MB: a batch of 100 long versions exceeded MariaDB's
+  default 16 MB packet limit (`max_allowed_packet`).
 
 ### Step 4 — Time travel in SQL
 
@@ -237,16 +261,60 @@ python app.py               # http://localhost:8000
 - **Compare with** another moment: unchanged paragraphs are counted, edited ones show the changed
   words, removed and added paragraphs are red and green.
 - **Reverts:** the most recent ones, each with a link to *what it undid*.
-- **The SQL** behind the page.
+- **The SQL** behind the page. *Talvisota* with all its 2,143 versions: 42 ms.
+- **Reverts are split in two:** grey for undoing an anonymous edit (vandalism being cleaned up),
+  red for named users undoing each other. Only the red ones count towards an edit war. Anonymous
+  means an IP address, or since 2025 a temporary account (`~2026-…`): Wikipedia no longer
+  publishes anonymous editors' IP addresses. 70 such accounts appear in our 50 articles.
 
 ### Step 6 — Measure
 
 ```bash
 python measure.py              # growth: versions per year, partitions, size on disk
 python measure.py --compare    # "as of" speed: partitioned, not partitioned, plain revision table
+python -m unittest test_history   # time travel, reverts and the text cleaner, on a test table
 ```
 
-*(TBD: results.)*
+Results on a MacBook Air M4, MariaDB 12.2.2 (full output: [data/measure.txt](data/measure.txt)).
+
+**How the table grows** — versions saved per year, all 50 articles:
+
+| Years | Versions per year | Text per year |
+|---|---|---|
+| 2003–2004 | 16–435 | 0–2 MB |
+| 2005–2008 (busiest) | 1,757–2,840 | 53–151 MB |
+| 2009–2017 | 742–1,772 | 42–95 MB |
+| 2018–2025 | 1,210–1,683 | 82–139 MB |
+| **Total** | **31,848** | **2,049 MB → 1,202 MB on disk** |
+
+Every version is a whole copy of the article, so the table grows with *edits × article length*:
+long articles that are edited often dominate. *Suomen sisällissota* alone has 3,357 versions.
+
+**"As of" speed** — the same question asked of three tables built from the same rows; median
+over 50 articles × 5 runs, in ms:
+
+| As of … | 2005 | 2010 | 2015 | 2020 | 2025 | now |
+|---|---|---|---|---|---|---|
+| versioned, partitioned — first try | 0.65 | 0.52 | 0.37 | 0.24 | 0.19 | 0.14 |
+| versioned, not partitioned — first try | 0.53 | 0.41 | 0.31 | 0.22 | 0.17 | 0.13 |
+| versioned, partitioned, + `KEY (page_id, row_start)` | 0.23 | 0.15 | 0.13 | 0.18 | 0.16 | 0.15 |
+| versioned, not partitioned, + that key | 0.05 | 0.18 | 0.20 | 0.28 | 0.19 | 0.15 |
+| plain `revision` table, `KEY (page_id, rev_time)` | 0.04 | 0.06 | 0.07 | 0.09 | 0.13 | 0.13 |
+
+- All three gave the same version for every article and moment.
+- **Why old dates were slow:** MariaDB's own index for history ends in `row_end`. "As of 2005"
+  means `row_start <= 2005 < row_end`; the index finds the versions that ended after 2005 — for an
+  old date, nearly all of them — and filters on `row_start`. `KEY (page_id, row_start)` lets the
+  optimizer start from the other end. It chooses per article: for *Talvisota* it still read
+  2,047 rows.
+- Below ~0.3 ms the differences are single-machine noise; any design is fast enough for a page.
+
+**Partitions read** for one "as of" query (`EXPLAIN PARTITIONS`): 2005 → 23 of 25, 2010 → 18,
+2015 → 13, 2020 → 8, 2025 → 3, now → 2.
+
+**Size on disk:** partitioned 1,196 MB, not partitioned 956 MB, plain revision table 965 MB
+(all with `COMPRESSED` text, macOS). The yearly partition files cost ~25% at this size. The same
+partitioned table in Docker (Linux, MariaDB 12.3.3): 945 MB.
 
 ### Step 7 — Together with the RAG demo *(later)*
 
@@ -255,15 +323,29 @@ versions is a choice — one vector per year per article, not per version.
 
 ## What database history replaces — and where it stops being the right answer
 
-*(TBD: with numbers.)* The draft:
+**Replaces:**
 
-- **Replaces:** a revision table, the code or triggers that fill it, and the "latest version
-  before date X" query. The history cannot be skipped by a code path that forgets the trigger.
-- **Stops being right when:** history must be *edited* (hidden versions, legal removals); you
-  need diffs rather than full copies (every version is a whole row); the table's structure
-  changes often (`ALTER` on a versioned table needs `system_versioning_alter_history`); or the
-  "when" that matters is not when the database changed (then application time, option c).
-  MediaWiki itself uses an ordinary revision table.
+- a revision table, and the code or triggers that fill it: here the application writes one row
+  per article, and history happens;
+- the "latest version before date X" query: `FOR SYSTEM_TIME AS OF` says it in the language;
+- the risk of a code path that forgets to record history: no path can.
+
+**Stops being the right answer when:**
+
+- **Speed is the reason.** It is not faster: a plain revision table with the right index answered
+  "as of" just as fast or faster (above). Choose it for simplicity and safety, not speed.
+- **History must be edited.** Hiding a version or removing it for legal reasons works against the
+  grain (`DELETE HISTORY`, or writing history with `system_versioning_insert_history`).
+- **Full copies are too expensive.** Every version is a whole row — 2 GB of text for 50 articles.
+  Wikipedia-sized history wants text stored once per distinct version, outside the main table.
+- **The "when" is not when the database changed.** Then it is application time (option c above),
+  or both.
+- **The structure changes often.** `ALTER TABLE` on a versioned table needs
+  `system_versioning_alter_history = KEEP`, and old rows keep their old meaning.
+- **You need temporary tables:** system-versioned tables cannot be temporary.
+
+MediaWiki itself, which runs on MariaDB, keeps history in an ordinary revision table, with the
+text stored separately.
 
 ## Numbers
 
@@ -271,11 +353,15 @@ versions is a choice — one vector per year per article, not per version.
 
 | | |
 |---|---|
-| Download the 12 dump files | TBD |
-| Load the 50 articles | TBD |
-| Versions loaded | TBD |
-| Table size on disk | TBD |
-| "As of" query | TBD |
+| Download the 12 dump files (3.4 GB) | ~35 min at 1.6 MB/s (much slower while the line is busy) |
+| Load the 50 articles (`load.py`) | ~20 min: 1–3 min per dump file |
+| Versions loaded | 31,848 (2003–2026), 2,049 MB of wikitext |
+| Table size on disk | 1,202 MB (`COMPRESSED` text, 25 yearly partitions in use) |
+| Most edited article | *Suomen sisällissota*, 3,357 versions |
+| "As of" query | 0.04–0.65 ms; 0.04–0.28 ms with `KEY (page_id, row_start)` |
+| Time machine page, *Talvisota* (2,143 versions) | 42 ms for the article and its whole history |
+| Add `KEY (page_id, row_start)` to the loaded table | 0.2 s |
+| Tests (`python -m unittest test_history`) | 5 tests, 0.13 s |
 
 ## Authors
 
