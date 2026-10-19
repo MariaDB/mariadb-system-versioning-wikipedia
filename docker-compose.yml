@@ -1,0 +1,22 @@
+# MariaDB for the Wikipedia Time Machine. Start:  docker compose up -d --wait
+# The tables are created by create_tables.py (setup.sh runs it), not mounted into the container:
+# Docker on a Mac may not see files outside your home folder.
+services:
+  mariadb:
+    image: mariadb:lts
+    environment:
+      MARIADB_ROOT_PASSWORD: wikihistory
+      MARIADB_DATABASE: wikihistory
+      MARIADB_USER: wikihistory
+      MARIADB_PASSWORD: wikihistory
+    ports:
+      - "3308:3306"     # 3308 on your machine: no collision with a local MariaDB (3306) or the vector demo (3307)
+    volumes:
+      - wikihistory-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+
+volumes:
+  wikihistory-data:

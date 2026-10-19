@@ -1,0 +1,65 @@
+MariaDB 12.2.2-MariaDB
+
+## Versions saved per year (all articles)
+
+| Year | Versions | MB of text |
+|---|---|---|
+| 2003 | 16 | 0 |
+| 2004 | 435 | 2 |
+| 2005 | 1,757 | 53 |
+| 2006 | 2,729 | 101 |
+| 2007 | 2,840 | 151 |
+| 2008 | 2,487 | 151 |
+| 2009 | 1,772 | 95 |
+| 2010 | 1,430 | 76 |
+| 2011 | 1,403 | 86 |
+| 2012 | 1,005 | 53 |
+| 2013 | 742 | 42 |
+| 2014 | 865 | 62 |
+| 2015 | 884 | 68 |
+| 2016 | 745 | 46 |
+| 2017 | 863 | 60 |
+| 2018 | 1,455 | 99 |
+| 2019 | 1,210 | 82 |
+| 2020 | 1,683 | 134 |
+| 2021 | 1,393 | 129 |
+| 2022 | 1,263 | 99 |
+| 2023 | 1,667 | 135 |
+| 2024 | 1,318 | 118 |
+| 2025 | 1,281 | 139 |
+| 2026 | 605 | 69 |
+| **total** | **31,848** | **2,049** |
+
+Partitions in use: 25 — each holds the versions that stopped being current in that year; `pn` holds the current ones.
+
+On disk: 1,196 MB in files, 1,202 MB actually allocated. Text: 2,049 MB → 59% of it on disk.
+
+Building comparison tables ...
+... 10 s
+
+## "As of" for 50 articles, 5 runs each — median ms per query
+
+| Table | 2005 | 2010 | 2015 | 2020 | 2025 | now |
+|---|---|---|---|---|---|---|
+| article (versioned, partitioned) | 0.23 | 0.15 | 0.13 | 0.18 | 0.16 | 0.15 |
+| article_nopart (versioned) | 0.05 | 0.18 | 0.20 | 0.28 | 0.19 | 0.15 |
+| revision (plain table + index) | 0.04 | 0.06 | 0.07 | 0.09 | 0.13 | 0.13 |
+
+All three tables gave the same version for every article and moment: True
+
+## Partitions read for one "as of" query (EXPLAIN PARTITIONS)
+
+- as of 2005: 23 of 25 partitions in use
+- as of 2010: 18 of 25 partitions in use
+- as of 2015: 13 of 25 partitions in use
+- as of 2020: 8 of 25 partitions in use
+- as of 2025: 3 of 25 partitions in use
+- as of now: 2 of 25 partitions in use
+
+## Size on disk
+
+| Table | Files MB | Allocated MB |
+|---|---|---|
+| article | 1,196 | 1,202 |
+| article_nopart | 956 | 956 |
+| revision | 965 | 965 |

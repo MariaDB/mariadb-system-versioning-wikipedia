@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+data/dumps/
+data/*.log
+.env
+.DS_Store
