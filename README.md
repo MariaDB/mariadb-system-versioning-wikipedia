@@ -366,6 +366,9 @@ text stored separately.
 ## Authors
 
 Robert Silén, [MariaDB Foundation](https://mariadb.org/), October 2026 — built with
-[Claude Code](https://claude.com/claude-code). Wikipedia text is under
-[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); licence for the code: to be
-decided.
+[Claude Code](https://claude.com/claude-code).
+
+**Licence.** The code and documentation in this repository are under the [MIT licence](LICENSE).
+The Wikipedia text — and what is made from it, such as the vectors — is under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/): you may use and share it if you credit
+Wikipedia and its authors and share what you make from the text under the same licence.
