@@ -16,7 +16,7 @@ declared `WITH SYSTEM VERSIONING`, and MariaDB keeps every earlier version itsel
 
 Built as an example of system-versioned tables in MariaDB. The data is the edit history of
 Finnish Wikipedia articles on the *History of Finland* — the same subject as
-[mariadb-vector-wikipedia-rag](https://github.com/robertsilen/mariadb-vector-wikipedia-rag), so the
+[mariadb-vector-wikipedia-rag](https://github.com/MariaDB/mariadb-vector-wikipedia-rag), so the
 two can be combined: *"what did Wikipedia say about this in 2015, and what has changed since?"*
 
 ![The time machine: an article's edits per month, reverts in red, and the article as it stood on the chosen date](docs/time-machine.jpg)
@@ -26,7 +26,7 @@ two can be combined: *"what did Wikipedia say about this in 2015, and what has c
 You need Python 3.11+, Docker, and 7-Zip's command-line program (`brew install 7-zip`). Then:
 
 ```bash
-git clone https://github.com/robertsilen/mariadb-system-versioning-wikipedia.git
+git clone https://github.com/MariaDB/mariadb-system-versioning-wikipedia.git
 cd mariadb-system-versioning-wikipedia
 ./setup.sh                  # packages, MariaDB in Docker, the history dumps, the load
 .venv/bin/python app.py     # the time machine: http://localhost:8000

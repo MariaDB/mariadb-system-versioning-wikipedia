@@ -12,7 +12,7 @@ import csv, hashlib, os, re, sys, requests
 DUMP = "https://dumps.wikimedia.org/fiwiki/20261001/"
 FOLDER = "data/dumps"
 HEADERS = {"User-Agent": "mariadb-system-versioning-wikipedia/1.0 "
-                         "(https://github.com/robertsilen/mariadb-system-versioning-wikipedia)"}
+                         "(https://github.com/MariaDB/mariadb-system-versioning-wikipedia)"}
 
 os.makedirs(FOLDER, exist_ok=True)
 sums = {}
